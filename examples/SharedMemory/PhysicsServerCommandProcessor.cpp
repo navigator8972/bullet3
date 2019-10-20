@@ -105,7 +105,7 @@
 #include "BulletDynamics/Featherstone/btMultiBodyDynamicsWorld.h"
 #endif
 
-#define SKIP_DEFORMABLE_BODY 1
+// #define SKIP_DEFORMABLE_BODY 1
 
 int gInternalSimFlags = 0;
 bool gResetSimulation = 0;
@@ -295,7 +295,10 @@ struct InteralUserConstraintData
 {
 	btTypedConstraint* m_rbConstraint;
 	btMultiBodyConstraint* m_mbConstraint;
-
+#ifndef SKIP_DEFORMABLE_BODY
+	//similar to jmatas, keep anchored deformable object for cleaning the anchor constraints
+	btSoftBody* anchoredSoftBody;
+#endif
 	b3UserConstraint m_userConstraintData;
 
 	InteralUserConstraintData()
@@ -2627,6 +2630,8 @@ void PhysicsServerCommandProcessor::createEmptyDynamicsWorld()
 	m_data->m_solver = new btDeformableMultiBodyConstraintSolver;
 	m_data->m_solver->setDeformableSolver(m_data->m_deformablebodySolver);
 	m_data->m_dynamicsWorld = new btDeformableMultiBodyDynamicsWorld(m_data->m_dispatcher, m_data->m_broadphase, m_data->m_solver, m_data->m_collisionConfiguration, m_data->m_deformablebodySolver);
+	//lets use explicit integration for speed now, doesnt impact much actually. the problem is from contacts
+	// m_data->m_dynamicsWorld->setImplicit(false);
 #else
 	m_data->m_dynamicsWorld = new btSoftMultiBodyDynamicsWorld(m_data->m_dispatcher, m_data->m_broadphase, m_data->m_solver, m_data->m_collisionConfiguration);
 #endif
@@ -3140,7 +3145,7 @@ bool PhysicsServerCommandProcessor::processImportedObjects(const char* fileName,
 				}
 			}
 
-			//b3Warning("No multibody loaded from URDF. Could add btRigidBody+btTypedConstraint solution later.");
+			// b3Warning("No multibody loaded from URDF. Could add btRigidBody+btTypedConstraint solution later.");
 			bodyHandle->m_rigidBody = rb;
 			rb->setUserIndex2(bodyUniqueId);
 			m_data->m_sdfRecentLoadedBodies.push_back(bodyUniqueId);
@@ -8112,6 +8117,7 @@ bool PhysicsServerCommandProcessor::processLoadSoftBodyCommand(const struct Shar
                 psb->m_renderNodes.resize(0);
             }
             btVector3 gravity = m_data->m_dynamicsWorld->getGravity();
+
             if (clientCmd.m_updateFlags & LOAD_SOFT_BODY_ADD_GRAVITY_FORCE)
             {
                     m_data->m_dynamicsWorld->addForce(psb, new btDeformableGravityForce(gravity));
@@ -8143,7 +8149,7 @@ bool PhysicsServerCommandProcessor::processLoadSoftBodyCommand(const struct Shar
             // collision between deformable and rigid
             psb->m_cfg.collisions = btSoftBody::fCollision::SDF_RD;
             // collion between deformable and deformable and self-collision
-            psb->m_cfg.collisions |= btSoftBody::fCollision::VF_DD;
+            // psb->m_cfg.collisions |= btSoftBody::fCollision::VF_DD;
             psb->setCollisionFlags(0);
 	    psb->setTotalMass(mass);
 #else
@@ -10657,6 +10663,7 @@ bool PhysicsServerCommandProcessor::processCreateUserConstraintCommand(const str
 		}
 		else
 		{
+			b3Printf("Before entering create attach constraint!\n");
 			InternalBodyData* childBody = clientCmd.m_userConstraintArguments.m_childBodyIndex >= 0 ? m_data->m_bodyHandles.getHandle(clientCmd.m_userConstraintArguments.m_childBodyIndex) : 0;
 
 			if (parentBody && childBody)
@@ -10692,7 +10699,64 @@ bool PhysicsServerCommandProcessor::processCreateUserConstraintCommand(const str
 							}
 						}
 					}
+#ifndef SKIP_DEFORMABLE_BODY
+					//also support child body as deformable body, referring to jmatas
+					//note this ignores the concrete joint type
+					else if(childBody->m_softBody)
+					{
+						b3Printf("Creating attach constraint!\n");
+						btSoftBody* psb = (btSoftBody*)m_data->m_dynamicsWorld->getSoftBodyArray()[0];
+						int bestIndex = 0;
+						btVector3 pivot(0, 0, 0);	//attaching point of parent rigid body, it cannot be multibody, and the anchor point is hard coded as origin
 
+						if (clientCmd.m_userConstraintArguments.m_childJointIndex < 0)
+						{
+							//find closest mesh point if no vertex index is specified, this is following jmatas
+							
+							
+							float bestDistance = 10000;  // large num
+							for (int nodeIndex = 0; nodeIndex < psb->m_nodes.size(); nodeIndex++)
+							{
+								float distance = 0;
+								for (int axis = 0; axis < 3; axis++)
+								{
+									float d = psb->m_nodes[nodeIndex].m_x[axis] - parentRb->getWorldTransform().getOrigin()[axis];
+									distance += d * d;
+								}
+								if (distance < bestDistance && psb->m_nodes[nodeIndex].m_x[2] + 0.01 >= parentRb->getWorldTransform().getOrigin()[2] )
+								{
+									bestIndex = nodeIndex;
+									bestDistance = distance;
+								}
+							}
+		
+							
+							if (bestDistance > 0.01) {
+								//jmatas allows to define the threshold by user, hard code it here.
+								return hasStatus;
+							}
+						}
+						else
+						{
+							//just assign the specified index, note this might be larger than the max index of mesh vertices, no checking here for now...
+							bestIndex = clientCmd.m_userConstraintArguments.m_childJointIndex;
+						}
+						//shouldnt we disable the collision between deformable mesh and connected rigid?
+						// psb->appendAnchor(bestIndex,parentRb, pivot, false, 1.5);
+						psb->appendAnchor(bestIndex,parentRb, pivot, true, 1.5);
+						InteralUserConstraintData userConstraintData;
+						// jmatas keep this for cleaning constraints of softbody
+						userConstraintData.anchoredSoftBody = psb;	
+						int uid = m_data->m_userConstraintUIDGenerator++;
+						serverCmd.m_userConstraintResultArgs = clientCmd.m_userConstraintArguments;
+						serverCmd.m_userConstraintResultArgs.m_userConstraintUniqueId = uid;
+						userConstraintData.m_userConstraintData = serverCmd.m_userConstraintResultArgs;
+						m_data->m_userConstraints.insert(uid,userConstraintData);
+						serverCmd.m_type = CMD_USER_CONSTRAINT_COMPLETED;
+						//i think we need to jump out here no?
+						//oh, no, it should be okay because childRb is NULL
+					}
+#endif
 					switch (clientCmd.m_userConstraintArguments.m_jointType)
 					{
 						case eRevoluteType:
@@ -10912,6 +10976,12 @@ bool PhysicsServerCommandProcessor::processCreateUserConstraintCommand(const str
 				delete userConstraintPtr->m_rbConstraint;
 				m_data->m_userConstraints.remove(userConstraintUidRemove);
 			}
+
+#ifndef SKIP_DEFORMABLE_BODY
+			if(userConstraintPtr->anchoredSoftBody) {
+				userConstraintPtr->anchoredSoftBody->m_anchors.clear();
+			}
+#endif
 			serverCmd.m_userConstraintResultArgs.m_userConstraintUniqueId = userConstraintUidRemove;
 			serverCmd.m_type = CMD_REMOVE_USER_CONSTRAINT_COMPLETED;
 		}

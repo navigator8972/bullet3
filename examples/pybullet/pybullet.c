@@ -1962,13 +1962,17 @@ static PyObject* pybullet_loadSoftBody(PyObject* self, PyObject* args, PyObject*
 	int physicsClientId = 0;
 	int flags = 0;
 
-	static char* kwlist[] = {"fileName", "basePosition", "baseOrientation", "scale", "mass", "collisionMargin", "physicsClientId", NULL};
+	// static char* kwlist[] = {"fileName", "basePosition", "baseOrientation", "scale", "mass", "collisionMargin", "physicsClientId", NULL};
+	static char* kwlist[] = {"fileName", "basePosition", "baseOrientation", "scale", "mass", "collisionMargin", "springElasticStiffness", "springDampingStiffness", "physicsClientId", NULL};
 
 	int bodyUniqueId = -1;
 	const char* fileName = "";
 	double scale = -1;
 	double mass = -1;
 	double collisionMargin = -1;
+
+	double springElasticStiffness = -1;
+	double springDampingStiffness = -1;
 
 	b3PhysicsClientHandle sm = 0;
 
@@ -1979,7 +1983,9 @@ static PyObject* pybullet_loadSoftBody(PyObject* self, PyObject* args, PyObject*
 	PyObject* basePosObj = 0;
 	PyObject* baseOrnObj = 0;
 
-	if (!PyArg_ParseTupleAndKeywords(args, keywds, "s|OOdddi", kwlist, &fileName, &basePosObj, &baseOrnObj, &scale, &mass, &collisionMargin, &physicsClientId))
+	// if (!PyArg_ParseTupleAndKeywords(args, keywds, "s|OOdddi", kwlist, &fileName, &basePosObj, &baseOrnObj, &scale, &mass, &collisionMargin, &physicsClientId))
+	if (!PyArg_ParseTupleAndKeywords(args, keywds, "s|OOdddddi", kwlist, &fileName, &basePosObj, &baseOrnObj, &scale, &mass, &collisionMargin, 
+		&springElasticStiffness, &springDampingStiffness, &physicsClientId))
 	{
 		return NULL;
 	}
@@ -2032,6 +2038,16 @@ static PyObject* pybullet_loadSoftBody(PyObject* self, PyObject* args, PyObject*
 		{
 			b3LoadSoftBodySetCollisionMargin(command, collisionMargin);
 		}
+
+		//set spring stiffness and damping forces if specified
+		if (springElasticStiffness > 0 && springDampingStiffness > 0)
+		{
+			b3LoadSoftBodyAddMassSpringForce(command, springElasticStiffness, springDampingStiffness);
+		}
+
+		//apply gravity force, the concrete value along three directions does not matter as the server will get them from the world
+		b3LoadSoftBodyAddGravityForce(command, 0, 0, -10);
+
 		statusHandle = b3SubmitClientCommandAndWaitStatus(sm, command);
 		statusType = b3GetStatusType(statusHandle);
 		if (statusType != CMD_LOAD_SOFT_BODY_COMPLETED)

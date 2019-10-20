@@ -364,6 +364,7 @@ B3_SHARED_API int b3LoadSoftBodyAddMassSpringForce(b3SharedMemoryCommandHandle c
 	b3Assert(command->m_type == CMD_LOAD_SOFT_BODY);
         command->m_loadSoftBodyArguments.m_springElasticStiffness = springElasticStiffness;
         command->m_loadSoftBodyArguments.m_springDampingStiffness = springDampingStiffness;
+
 	command->m_updateFlags |= LOAD_SOFT_BODY_ADD_MASS_SPRING_FORCE;
 	return 0;
 }
