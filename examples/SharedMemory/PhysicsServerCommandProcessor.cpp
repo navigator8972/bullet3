@@ -10685,7 +10685,6 @@ bool PhysicsServerCommandProcessor::processCreateUserConstraintCommand(const str
 		}
 		else
 		{
-			b3Printf("Before entering create attach constraint!\n");
 			InternalBodyData* childBody = clientCmd.m_userConstraintArguments.m_childBodyIndex >= 0 ? m_data->m_bodyHandles.getHandle(clientCmd.m_userConstraintArguments.m_childBodyIndex) : 0;
 
 			if (parentBody && childBody)
@@ -10734,8 +10733,6 @@ bool PhysicsServerCommandProcessor::processCreateUserConstraintCommand(const str
 						if (clientCmd.m_userConstraintArguments.m_childJointIndex < 0)
 						{
 							//find closest mesh point if no vertex index is specified, this is following jmatas
-							
-							
 							float bestDistance = 10000;  // large num
 							for (int nodeIndex = 0; nodeIndex < psb->m_nodes.size(); nodeIndex++)
 							{
@@ -10765,7 +10762,7 @@ bool PhysicsServerCommandProcessor::processCreateUserConstraintCommand(const str
 						}
 						//shouldnt we disable the collision between deformable mesh and connected rigid?
 						// psb->appendAnchor(bestIndex,parentRb, pivot, false, 1.5);
-						psb->appendAnchor(bestIndex,parentRb, pivot, true, 1.5);
+						psb->appendDeformableAnchor(bestIndex,parentRb);
 						InteralUserConstraintData userConstraintData;
 						// jmatas keep this for cleaning constraints of softbody
 						userConstraintData.anchoredSoftBody = psb;	
@@ -11001,7 +10998,7 @@ bool PhysicsServerCommandProcessor::processCreateUserConstraintCommand(const str
 
 #ifndef SKIP_DEFORMABLE_BODY
 			if(userConstraintPtr->anchoredSoftBody) {
-				userConstraintPtr->anchoredSoftBody->m_anchors.clear();
+				userConstraintPtr->anchoredSoftBody->m_deformableAnchors.clear();
 			}
 #endif
 			serverCmd.m_userConstraintResultArgs.m_userConstraintUniqueId = userConstraintUidRemove;
