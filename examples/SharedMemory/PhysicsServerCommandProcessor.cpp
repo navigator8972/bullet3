@@ -8193,6 +8193,10 @@ bool PhysicsServerCommandProcessor::processLoadSoftBodyCommand(const struct Shar
 	    psb->getCollisionShape()->setMargin(collisionMargin);
 	    psb->getCollisionShape()->setUserPointer(psb);
 	    m_data->m_dynamicsWorld->addSoftBody(psb);
+		//for performance?
+		m_data->m_dynamicsWorld->getWorldInfo().m_sparsesdf.setDefaultVoxelsz(0.05);
+		m_data->m_dynamicsWorld->getWorldInfo().m_sparsesdf.Reset();
+
 	    m_data->m_guiHelper->createCollisionShapeGraphicsObject(psb->getCollisionShape());
 	    m_data->m_guiHelper->autogenerateGraphicsObjects(this->m_data->m_dynamicsWorld);
 	    int bodyUniqueId = m_data->m_bodyHandles.allocHandle();
